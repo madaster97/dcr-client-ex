@@ -1,0 +1,3 @@
+[submodule "dcr-client"]
+	path = dcr-client
+	url = https://github.com/madaster97/dcr-client.git
