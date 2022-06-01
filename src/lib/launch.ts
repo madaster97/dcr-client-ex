@@ -78,7 +78,7 @@ export const standalone = async (initialClientId: string, softwareId: string, is
         redirect_uri: getRedirect(),
         aud: iss,
         response_type: 'code',
-        scope: 'openid fhirUser',
+        scope: 'openid fhirUser launch/patient',
         state,
         // nonce,
         code_challenge,
@@ -136,7 +136,7 @@ export const token = async (): Promise<ClientStore.Client> => {
     const resp = await fetch(token, { method: 'POST', body });
 
     // Use this immediately, and only store in memory!
-    const { access_token: initialAccessToken, patient, id_token, scope } = await resp.json();
+    const { access_token: initialAccessToken, id_token, scope, expires_in, token_type, ...context } = await resp.json();
 
     if (!id_token) {
         return Promise.reject('Missing id_token. Scope ' + (scope.includes('openid') ? 'did' : 'did not') + 'include "openid"')
@@ -170,9 +170,10 @@ export const token = async (): Promise<ClientStore.Client> => {
         privateKey,
         token_endpoint: token,
         extra: {
-            patient,
             iss,
-            fhirUser: fhirUser.split(iss + '/')[1]
+            fhirUserRelative: fhirUser.split(iss + '/')[1],
+            scope,
+            context
         },
         sub
     }

@@ -45,7 +45,8 @@ const ClientTable: React.FC<{
           </Thead>
           <Tbody>
             {clients.map(c => {
-              const { client_id, creationTime, kid, token_endpoint, extra } = c
+              const { client_id, creationTime, kid, token_endpoint, extra } = c;
+              const context = extra.context as Record<string,string>;
               return (
                 <Tr
                   key={`${client_id}|${token_endpoint}`}
@@ -55,8 +56,8 @@ const ClientTable: React.FC<{
                   <Td>{client_id}</Td>
                   <Td>{token_endpoint}</Td>
                   <Td>{kid}</Td>
-                  <Td>{(extra.fhirUser as string) || 'Unknown'}</Td>
-                  <Td>{(extra.patient as string) || 'Unknown'}</Td>
+                  <Td>{(extra.fhirUserRelative as string) || 'Unknown'}</Td>
+                  <Td>{(context.patient as string) || 'Unknown'}</Td>
                   <Td>{creationTime.toDateString()}</Td>
                 </Tr>
               )
