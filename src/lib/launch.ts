@@ -1,6 +1,5 @@
 import { ClientStore, register as registerClient } from 'dcr-client'
-import pkceChallenge, { verifyChallenge } from 'pkce-challenge'
-import jwt_decode from "jwt-decode";
+import FHIR from 'fhirclient'
 
 export function setRedirect(redirect: string) {
     window.localStorage.setItem('REDIRECT_URI', redirect);
@@ -26,6 +25,7 @@ function getRedirect(): string {
 async function getMetadata(iss: string, headers: Record<string, string | number>): Promise<{ authorize: string, token: string, register: string }> {
     const url = `${iss}/metadata`
     const resp = await fetch(url, {
+        mode: 'cors',
         headers: {
             'Accept': 'application/json',
             ...headers
@@ -56,96 +56,41 @@ export function hasLaunched(): boolean {
     return !!window.sessionStorage.getItem('LAUNCH_SESSION')
 }
 
-export const standalone = async (initialClientId: string, softwareId: string, iss: string): Promise<string> => {
-    const { authorize, register, token } = await getMetadata(iss, { 'Epic-Client-ID': initialClientId });
-    const { code_verifier, code_challenge } = pkceChallenge();
-    const { code_verifier: state_verifier, code_challenge: state } = pkceChallenge();
-    // const { code_verifier: nonce_verifier, code_challenge: nonce } = pkceChallenge();
-
+export const standalone = async (initialClientId: string, softwareId: string, iss: string): Promise<string | void> => {
+    // const { register } = await getMetadata(iss, { 'Epic-Client-ID': initialClientId });
+    // TODO, very broken!
+    const register = iss.replace('/api/FHIR/R4', '/oauth2/register')
+    
     const session = {
-        token,
         register,
-        initialClientId,
-        softwareId,
-        iss,
-        code_verifier,
-        state_verifier,
-        // nonce_verifier
-    }
+        softwareId
+    };
 
-    const queryString = new URLSearchParams({
+    window.sessionStorage.setItem('LAUNCH_SESSION', JSON.stringify(session));
+    return FHIR.oauth2.authorize({
         client_id: initialClientId,
-        redirect_uri: getRedirect(),
-        aud: iss,
-        response_type: 'code',
-        scope: 'openid fhirUser launch/patient',
-        state,
-        // nonce,
-        code_challenge,
-        code_challenge_method: 'S256'
-    })
-
-    window.sessionStorage.setItem('LAUNCH_SESSION', JSON.stringify(session))
-    return `${authorize}?${queryString.toString()}`
+        scope: "openid fhirUser system/DynamicClient.register launch/patient",
+        redirectUri: getRedirect(),
+        iss
+    });
 }
 
-export const token = async (): Promise<ClientStore.Client> => {
+export const grant = async (): Promise<ClientStore.Client> => {
     const rawSession = window.sessionStorage.getItem('LAUNCH_SESSION');
     if (!rawSession) {
         return Promise.reject('No launch session found. Please launch again or enable session storage')
     }
     window.sessionStorage.removeItem('LAUNCH_SESSION');
     const {
-        token,
         register,
-        initialClientId,
-        softwareId,
-        iss,
-        code_verifier,
-        state_verifier,
-        // nonce_verifier
+        softwareId
     } = JSON.parse(rawSession);
 
-    const params = new URLSearchParams(window.location.search);
+    const client = await FHIR.oauth2.ready();
 
-    // State validation
-    const state = params.get('state');
-    if (!state) {
-        return Promise.reject('Missing `state` response parameter')
-    }
-    if (!verifyChallenge(state_verifier, state)) {
-        return Promise.reject('State verification failed')
-    }
+    const sub = client.getIdToken()?.sub
 
-    if (params.has('error') || params.has('error_description')) {
-        return Promise.reject(`Encountered ${params.get('error')} error [${params.get('error_description')}]`)
-    }
-
-    const code = params.get('code')
-    if (!code) {
-        return Promise.reject('Missing `code` response parameter')
-    }
-    const body = new URLSearchParams({
-        redirect_uri: getRedirect(),
-        client_id: initialClientId,
-        grant_type: 'authorization_code',
-        code_verifier,
-        code
-    })
-
-    const resp = await fetch(token, { method: 'POST', body });
-
-    // Use this immediately, and only store in memory!
-    const { access_token: initialAccessToken, id_token, scope, expires_in, token_type, ...context } = await resp.json();
-
-    if (!id_token) {
-        return Promise.reject('Missing id_token. Scope ' + (scope.includes('openid') ? 'did' : 'did not') + 'include "openid"')
-    }
-
-    // Delivered over TLS + in app code, verification isn't necessary 
-    const { sub, fhirUser
-        // , nonce
-    } = jwt_decode(id_token) as Record<string, string>;
+    const fhirUser = `${client.getUserType()}/${client.getUserId()}`
 
     if (!sub) {
         return Promise.reject(`id_token missing sub parameter`)
@@ -154,13 +99,16 @@ export const token = async (): Promise<ClientStore.Client> => {
         return Promise.reject(`id_token missing fhirUser parameter`)
     }
 
-    // if (!verifyChallenge(nonce_verifier, nonce)) {
-    //     return Promise.reject('Nonce verification failed')
-    // }
+    const initialAccessToken = client.getAuthorizationHeader()?.substring(7) || ''
 
     const { client_id, kid, privateKey, publicKey
         // , metadata
     } = await registerClient(initialAccessToken, register, softwareId, 'RS384');
+
+    const iss = client.state.serverUrl;
+    const token = client.state.tokenUri || ''
+    const scope = client.state.scope || ''
+    const context = client.state.tokenResponse as Record<string, unknown>;
 
     const newClient = {
         client_id,
@@ -171,7 +119,7 @@ export const token = async (): Promise<ClientStore.Client> => {
         token_endpoint: token,
         extra: {
             iss,
-            fhirUserRelative: fhirUser.split(iss + '/')[1],
+            fhirUserRelative: fhirUser,
             scope,
             context
         },

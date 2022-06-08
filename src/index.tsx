@@ -4,10 +4,10 @@ import ReactDOM from 'react-dom'
 import { App } from './App'
 import reportWebVitals from './reportWebVitals'
 import * as serviceWorker from './serviceWorker'
-import { token } from './lib/launch'
+import { grant } from './lib/launch'
 
 if (window.sessionStorage.getItem('LAUNCH_SESSION')) {
-  token()
+  grant()
     .then(c => {
       ReactDOM.render(
         <React.StrictMode>

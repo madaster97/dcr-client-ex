@@ -30,7 +30,6 @@ const ClientLaunch: React.FC = () => {
       onSubmit={() => {
         if (!!softwareId && !!initialClientId && !!iss) {
           standalone(initialClientId, softwareId, iss)
-            .then(url => (window.location.href = url))
             .catch(e => window.alert(e))
         }
       }}
